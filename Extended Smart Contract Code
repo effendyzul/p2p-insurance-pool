@@ -1,0 +1,149 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract InsurancePoolToken is ERC20, Ownable {
+    constructor() ERC20("Insurance Pool Token", "IPT") {
+        _mint(msg.sender, 1000000 * 10 ** decimals());
+    }
+
+    function mint(address to, uint256 amount) external onlyOwner {
+        _mint(to, amount);
+    }
+}
+
+contract P2PInsurancePool is Ownable {
+    struct Participant {
+        bool isParticipating;
+        uint256 contribution;
+        bool hasClaimed;
+    }
+
+    struct ClaimRequest {
+        address claimant;
+        uint256 amount;
+        uint256 votesFor;
+        uint256 votesAgainst;
+        bool isProcessed;
+    }
+
+    InsurancePoolToken public token;
+    uint256 public totalPool;
+    uint256 public claimAmount;
+    uint256 public claimCounter;
+    bool public isPaused;
+
+    mapping(address => Participant) public participants;
+    mapping(uint256 => ClaimRequest) public claims;
+
+    event JoinedPool(address indexed participant, uint256 amount);
+    event ClaimRequested(address indexed claimant, uint256 amount);
+    event ClaimVoted(uint256 indexed claimId, address indexed voter, bool vote);
+    event ClaimProcessed(uint256 indexed claimId, bool approved);
+    event PoolPaused();
+    event PoolResumed();
+
+    modifier onlyParticipant() {
+        require(participants[msg.sender].isParticipating, "Not a participant.");
+        _;
+    }
+
+    modifier notPaused() {
+        require(!isPaused, "Contract is paused.");
+        _;
+    }
+
+    constructor(address _tokenAddress, uint256 _claimAmount) {
+        token = InsurancePoolToken(_tokenAddress);
+        claimAmount = _claimAmount;
+    }
+
+    // Join the insurance pool by contributing Ether
+    function joinPool() external payable notPaused {
+        require(msg.value > 0, "Contribution must be greater than zero.");
+        require(!participants[msg.sender].isParticipating, "Already participating.");
+
+        participants[msg.sender] = Participant(true, msg.value, false);
+        totalPool += msg.value;
+
+        // Mint IPT tokens as a reward for contribution
+        token.mint(msg.sender, msg.value);
+
+        emit JoinedPool(msg.sender, msg.value);
+    }
+
+    // Request a claim from the pool
+    function requestClaim() external onlyParticipant notPaused {
+        require(!participants[msg.sender].hasClaimed, "Already requested a claim.");
+        require(totalPool >= claimAmount, "Insufficient pool balance.");
+
+        participants[msg.sender].hasClaimed = true;
+        claimCounter++;
+        claims[claimCounter] = ClaimRequest(msg.sender, claimAmount, 0, 0, false);
+
+        emit ClaimRequested(msg.sender, claimAmount);
+    }
+
+    // Vote on a claim request
+    function voteOnClaim(uint256 claimId, bool voteFor) external onlyParticipant notPaused {
+        ClaimRequest storage claim = claims[claimId];
+        require(!claim.isProcessed, "Claim already processed.");
+        require(claim.claimant != msg.sender, "Claimant cannot vote on own claim.");
+
+        if (voteFor) {
+            claim.votesFor++;
+        } else {
+            claim.votesAgainst++;
+        }
+
+        emit ClaimVoted(claimId, msg.sender, voteFor);
+
+        // Auto-process if majority reached
+        if (claim.votesFor > totalPool / 2) {
+            processClaim(claimId, true);
+        } else if (claim.votesAgainst > totalPool / 2) {
+            processClaim(claimId, false);
+        }
+    }
+
+    // Process the claim request
+    function processClaim(uint256 claimId, bool approved) internal {
+        ClaimRequest storage claim = claims[claimId];
+        require(!claim.isProcessed, "Claim already processed.");
+
+        claim.isProcessed = true;
+        participants[claim.claimant].hasClaimed = false;
+
+        if (approved) {
+            totalPool -= claim.amount;
+            payable(claim.claimant).transfer(claim.amount);
+            emit ClaimProcessed(claimId, true);
+        } else {
+            emit ClaimProcessed(claimId, false);
+        }
+    }
+
+    // Pause the contract in case of emergency
+    function pausePool() external onlyOwner {
+        isPaused = true;
+        emit PoolPaused();
+    }
+
+    // Resume the contract
+    function resumePool() external onlyOwner {
+        isPaused = false;
+        emit PoolResumed();
+    }
+
+    // Check total funds in the pool
+    function getTotalPool() external view returns (uint256) {
+        return totalPool;
+    }
+
+    // Fallback function to accept Ether
+    receive() external payable {
+        totalPool += msg.value;
+    }
+}
