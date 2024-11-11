@@ -1,0 +1,19 @@
+async function main() {
+  const [deployer] = await ethers.getSigners();
+
+  const Token = await ethers.getContractFactory("InsurancePoolToken");
+  const token = await Token.deploy();
+  await token.deployed();
+
+  const Pool = await ethers.getContractFactory("P2PInsurancePool");
+  const pool = await Pool.deploy(token.address, ethers.utils.parseEther("1"));
+  await pool.deployed();
+
+  console.log("Token deployed to:", token.address);
+  console.log("Pool deployed to:", pool.address);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
