@@ -1,4 +1,4 @@
-nsurance Claims Management System
+Insurance Claims Management System
 Introduction
 This project implements a blockchain-based Insurance Claims Management System to enhance transparency, reduce fraud, and improve operational efficiency in insurance claim processing. It integrates smart contracts on the Ethereum blockchain, IoT sensors for real-time inputs, and a user-friendly frontend dashboard for interaction.
 
